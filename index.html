@@ -1,0 +1,308 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ニコニコ動画検索</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #f2f4f8;
+      color: #222;
+    }
+
+    header {
+      background: #252936;
+      color: white;
+      padding: 22px 16px;
+      text-align: center;
+    }
+
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 25px;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+
+    .search-box, .player-box {
+      background: white;
+      padding: 18px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px #0000000d;
+    }
+
+    .search-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    input {
+      min-width: 0;
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      background: #e34b4b;
+      color: white;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: wait;
+    }
+
+    #status {
+      color: #555;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
+
+    .video-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .video-card {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px #0000000d;
+    }
+
+    .video-card img {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      background: #ddd;
+      display: block;
+    }
+
+    .video-info {
+      padding: 12px;
+    }
+
+    .video-title {
+      font-weight: bold;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .video-meta {
+      margin-top: 8px;
+      color: #666;
+      font-size: 13px;
+    }
+
+    .video-info button {
+      margin-top: 12px;
+      width: 100%;
+    }
+
+    iframe {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 0;
+      background: #111;
+      border-radius: 8px;
+    }
+
+    .hidden { display: none; }
+
+    footer {
+      text-align: center;
+      padding: 24px;
+      color: #666;
+      font-size: 13px;
+    }
+
+    @media (max-width: 480px) {
+      .search-row { flex-direction: column; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>ニコニコ動画検索</h1>
+    <div>好きなキーワードで動画を探そう</div>
+  </header>
+
+  <main>
+    <section class="search-box">
+      <h2>動画を検索</h2>
+      <form id="searchForm" class="search-row">
+        <input
+          id="keyword"
+          type="search"
+          placeholder="例：ウルトラマン"
+          aria-label="検索キーワード"
+          required
+        >
+        <button id="searchButton" type="submit">検索</button>
+      </form>
+      <p id="status" role="status">キーワードを入力して検索してね。</p>
+    </section>
+
+    <section id="playerBox" class="player-box hidden">
+      <h2 id="playerTitle">動画プレイヤー</h2>
+      <iframe
+        id="player"
+        title="ニコニコ動画プレイヤー"
+        allowfullscreen
+        allow="autoplay; fullscreen"
+        referrerpolicy="strict-origin-when-cross-origin"
+      ></iframe>
+      <p>
+        <a id="originalLink" href="#" target="_blank"
+           rel="noopener noreferrer">ニコニコ動画の元ページを開く</a>
+      </p>
+    </section>
+
+    <section>
+      <h2>検索結果</h2>
+      <div id="results" class="video-list"></div>
+    </section>
+  </main>
+
+  <footer>
+    このサイトは個人制作です。ニコニコ動画の公式サイトではありません。
+  </footer>
+
+  <script>
+    const form = document.getElementById("searchForm");
+    const keywordInput = document.getElementById("keyword");
+    const searchButton = document.getElementById("searchButton");
+    const statusText = document.getElementById("status");
+    const results = document.getElementById("results");
+    const playerBox = document.getElementById("playerBox");
+    const player = document.getElementById("player");
+    const playerTitle = document.getElementById("playerTitle");
+    const originalLink = document.getElementById("originalLink");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const keyword = keywordInput.value.trim();
+      if (!keyword) return;
+
+      results.replaceChildren();
+      playerBox.classList.add("hidden");
+      player.src = "";
+      searchButton.disabled = true;
+      statusText.textContent = "検索中です……";
+
+      try {
+        const params = new URLSearchParams({
+          q: keyword,
+          targets: "title",
+          fields: "contentId,title,thumbnailUrl,viewCounter",
+          _sort: "-viewCounter",
+          _limit: "20"
+        });
+
+        const apiURL =
+          "https://snapshot.search.nicovideo.jp/api/v2/snapshot/video/contents/search?"
+          + params.toString();
+
+        const response = await fetch(apiURL, {
+          headers: {
+            "X-Frontend-Id": "6"
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error("APIからHTTP " + response.status + " が返されました。");
+        }
+
+        const data = await response.json();
+        const videos = data.data || [];
+
+        if (videos.length === 0) {
+          statusText.textContent =
+            "動画が見つかりませんでした。別のキーワードを試してね。";
+          return;
+        }
+
+        statusText.textContent = videos.length + "件の動画が見つかりました。";
+
+        for (const video of videos) {
+          if (!video.contentId) continue;
+
+          const card = document.createElement("article");
+          card.className = "video-card";
+
+          const thumbnail = document.createElement("img");
+          thumbnail.alt = "動画のサムネイル";
+          thumbnail.loading = "lazy";
+          thumbnail.src = video.thumbnailUrl || "";
+          thumbnail.addEventListener("error", () => {
+            thumbnail.style.display = "none";
+          });
+
+          const info = document.createElement("div");
+          info.className = "video-info";
+
+          const title = document.createElement("div");
+          title.className = "video-title";
+          title.textContent = video.title || "タイトルなし";
+
+          const meta = document.createElement("div");
+          meta.className = "video-meta";
+          meta.textContent = "再生数：" +
+            (Number(video.viewCounter || 0).toLocaleString("ja-JP"));
+
+          const playButton = document.createElement("button");
+          playButton.type = "button";
+          playButton.textContent = "このページで再生";
+
+          playButton.addEventListener("click", () => {
+            const watchURL =
+              "https://www.nicovideo.jp/watch/" + video.contentId;
+            const embedURL =
+              "https://embed.nicovideo.jp/watch/" + video.contentId;
+
+            playerTitle.textContent = video.title || "動画プレイヤー";
+            player.src = embedURL;
+            originalLink.href = watchURL;
+            playerBox.classList.remove("hidden");
+            playerBox.scrollIntoView({ behavior: "smooth" });
+          });
+
+          info.append(title, meta, playButton);
+          card.append(thumbnail, info);
+          results.append(card);
+        }
+
+      } catch (error) {
+        console.error(error);
+        statusText.textContent =
+          "検索に失敗しました。ブラウザのCORS制限、API側の制限、"
+          + "ネットワークの制限などが考えられます。"
+          + "詳細は開発者ツールのConsoleを確認してください。";
+      } finally {
+        searchButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
